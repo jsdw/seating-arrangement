@@ -1,69 +1,75 @@
 #[macro_use] mod errors;
+mod scores;
+mod person;
+mod tables;
 
+use itertools::Itertools;
 use structopt::StructOpt;
 use std::path::{ Path, PathBuf };
 use errors::Error;
+use scores::Scores;
+use person::{ NameToId, Id };
+use tables::{ TableSpec, Tables };
 
 #[derive(StructOpt, Debug)]
 #[structopt(name = "seating")]
 struct Opt {
-
+    /// A path to a CSV file containing pairs of individuals and a score
+    /// for how much these people should be sat together.
     #[structopt(short="s", long="scores", parse(from_os_str))]
-    scores: PathBuf,
-
+    score_list_file: PathBuf,
+    /// A description of the available tables to seat people on.
     #[structopt(short="t", long="tables")]
-    tables: Vec<TableSpec>
-
+    table_specs: Vec<TableSpec>
 }
 
-#[derive(Debug)]
-struct TableSpec {
-    seats: usize,
-    quantity: usize
-}
-
-impl std::str::FromStr for TableSpec {
-    type Err = Error;
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        // 'A' is the number of seats on a table:
-        if let Ok(n) = s.parse() {
-            Ok(TableSpec { seats: n, quantity: 1 })
-        }
-        // 'AxB' is the number of seats * the number of tables with that many seats:
-        else if let Some(idx) = s.find(|c| c == 'x' || c == 'X') {
-            let seats_str = &s[0..idx];
-            let quantity_str = &s[idx+1..];
-
-            let seats = seats_str.parse().map_err(|_| {
-                err!("'{}' is not a valid number of seats", seats_str)
-            })?;
-            let quantity = quantity_str.parse().map_err(|_| {
-                err!("'{}' is not a valid number of tables", quantity_str)
-            })?;
-
-            Ok(TableSpec { seats, quantity })
-        }
-        // None of the above is an error:
-        else {
-            Err(err!("Table quantity needs to be provided as 'A' or 'AxB' where 'A' is the\
-            number of seats and 'B' is the number of tables with that number of seats"))
-        }
-    }
-}
-
-#[derive(Debug)]
-struct Score {
-    value: isize,
-    person1: String,
-    person2: String
-}
-
-fn main() {
+fn main() -> Result<(),Error> {
     let opt = Opt::from_args();
-    println!("{:?}", opt);
+    let score_list = load_scores(&opt.score_list_file)?;
+    let tables: Tables = opt.table_specs.into();
 
-    let scores = load_scores(&opt.scores);
-    println!("{:?}", scores)
+    // build map of name to Id:
+    let mut name_to_id = NameToId::new();
+    for score in &score_list {
+        name_to_id.add_person(score.person1.to_owned());
+        name_to_id.add_person(score.person2.to_owned());
+    }
+
+    // build map of pair-of-names to score:
+    let mut scores = Scores::new();
+    for score in &score_list {
+        let person1_id = name_to_id.get_id(&score.person1).unwrap();
+        let person2_id = name_to_id.get_id(&score.person2).unwrap();
+        scores.add_score(person1_id, person2_id, score.value);
+    }
+
+    // Get number of total seats:
+    let number_of_seats = tables.num_seats();
+
+    // Build starting seat arrangement:
+    let mut seats: Vec<Option<Id>> = name_to_id.iter_ids().map(|id| Some(id)).collect();
+    for _ in seats.len()..number_of_seats {
+        seats.push(None)
+    }
+
+    // Our cost function (lower output is better):
+    let cost_fn = |seats: &[Option<Id>]| -> isize {
+        let mut cost = 0;
+        for (_,ids) in tables.chunks_of(seats) {
+            for (a,b) in ids.iter().filter_map(|&id| id).tuple_combinations() {
+                cost += scores.get_score(a, b).unwrap_or(0)
+            }
+        }
+        cost
+    };
+
+    // Train a GA using the initial seat list, and the cost_fn above.
+
+    println!("Cost: {}", cost_fn(&seats));
+    cost_fn(&seats);
+    cost_fn(&seats);
+
+    println!("Seats: {}, available: {}", seats.len(), number_of_seats);
 
     // Load the Scores CSV
     // Use a GA where each unit is a person, or an empty space
@@ -76,6 +82,7 @@ fn main() {
     //   add all table scores together for a grand total.
     // Score to beat: -13650
     // Runtime: ~20secs on old laptop
+    Ok(())
 }
 
 fn load_scores(file_path: &Path) -> Result<Vec<Score>,Error> {
@@ -101,4 +108,11 @@ fn load_scores(file_path: &Path) -> Result<Vec<Score>,Error> {
             })
         })
         .collect()
+}
+
+#[derive(Debug)]
+struct Score {
+    value: isize,
+    person1: String,
+    person2: String
 }
