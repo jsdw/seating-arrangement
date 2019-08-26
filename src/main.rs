@@ -1,5 +1,5 @@
 #[macro_use] mod errors;
-mod ga;
+mod optimiser;
 mod scores;
 mod person;
 mod tables;
@@ -21,13 +21,18 @@ struct Opt {
     score_list_file: PathBuf,
     /// A description of the available tables to seat people on.
     #[structopt(short="t", long="tables")]
-    table_specs: Vec<TableSpec>
+    table_specs: Vec<TableSpec>,
+    /// How many iterations to perform; more iterations leads to better
+    /// results, but also takes longer to complete.
+    #[structopt(short="i", long="iterations")]
+    iterations: usize
 }
 
 fn main() -> Result<(),Error> {
     let opt = Opt::from_args();
     let score_list = load_scores(&opt.score_list_file)?;
     let tables: Tables = opt.table_specs.into();
+    let iterations = opt.iterations;
 
     // build map of name to Id:
     let mut name_to_id = NameToId::new();
@@ -65,21 +70,25 @@ fn main() -> Result<(),Error> {
     };
 
     // Train a GA using the initial seat list, and the cost_fn above.
-    let mut genetic_algorithm = ga::Stepper::new(ga::Opts{
-        population_size: 3,
-        mutation_chance: 0.6,
+    let mut op = optimiser::Optimiser::new(optimiser::Opts{
+        population_size: 10,
         fitness_function: cost_fn,
         initial_value: &seats
     });
-    for it in 0..1000000 {
-        genetic_algorithm.step();
-        println!("{} Best: {:?}", it+1, genetic_algorithm.best_entry().1);
+    for it in 0..iterations {
+        op.step();
+        if it % 1000 == 0 {
+            let seats = op.best_entry();
+            let score = cost_fn(&seats);
+            println!("{}: {}", it, score);
+        }
     }
 
-    let (seats, _) = genetic_algorithm.best_entry();
+    let seats = op.best_entry();
+    let score = cost_fn(&seats);
 
     for (table_size, ids) in tables.chunks_of(seats) {
-        println!("Table Size {}:", table_size);
+        println!("Table (size {}):", table_size);
         for id in ids {
             if let Some(id) = id {
                 let name = name_to_id.get_name(*id).expect("Id should have a corresponding name");
@@ -88,6 +97,7 @@ fn main() -> Result<(),Error> {
         }
         println!();
     }
+    println!("Final score: {}", score);
 
     Ok(())
 }
