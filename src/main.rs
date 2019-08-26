@@ -1,4 +1,5 @@
 #[macro_use] mod errors;
+mod ga;
 mod scores;
 mod person;
 mod tables;
@@ -64,24 +65,30 @@ fn main() -> Result<(),Error> {
     };
 
     // Train a GA using the initial seat list, and the cost_fn above.
+    let mut genetic_algorithm = ga::Stepper::new(ga::Opts{
+        population_size: 3,
+        mutation_chance: 0.6,
+        fitness_function: cost_fn,
+        initial_value: &seats
+    });
+    for it in 0..1000000 {
+        genetic_algorithm.step();
+        println!("{} Best: {:?}", it+1, genetic_algorithm.best_entry().1);
+    }
 
-    println!("Cost: {}", cost_fn(&seats));
-    cost_fn(&seats);
-    cost_fn(&seats);
+    let (seats, _) = genetic_algorithm.best_entry();
 
-    println!("Seats: {}, available: {}", seats.len(), number_of_seats);
+    for (table_size, ids) in tables.chunks_of(seats) {
+        println!("Table Size {}:", table_size);
+        for id in ids {
+            if let Some(id) = id {
+                let name = name_to_id.get_name(*id).expect("Id should have a corresponding name");
+                println!("- {}", name);
+            }
+        }
+        println!();
+    }
 
-    // Load the Scores CSV
-    // Use a GA where each unit is a person, or an empty space
-    // Fixed width, so always same length.
-    // For mutation step(s), swap two people.
-    // To calculate score:
-    //   split GA 'string' into tables
-    //   for each person on a table, sum the score of that person against each other person (0 if no score).
-    //   then, sum these values together to get a score for the whole table
-    //   add all table scores together for a grand total.
-    // Score to beat: -13650
-    // Runtime: ~20secs on old laptop
     Ok(())
 }
 
