@@ -49,25 +49,19 @@ impl <T: std::fmt::Debug + Clone, F: FnMut(&[T]) -> isize> Optimiser<T, F> {
     fn breed_next_population(&mut self) {
         let mut rng = rand::thread_rng();
         let len = self.population.len();
-
-        let lowest_mutation_rate = 0.1;
-        let highest_mutation_rate = 0.9;
         let mut new_population = Vec::with_capacity(len);
 
         // Always keep the winner:
         new_population.push(self.population[0].clone());
 
-        for n in 1..len {
+        for _ in 1..len {
             // Random index skewed towards starting entries:
             let idx = (rng.gen_range(0.0f64,1.0).powf(2.0) * len as f64).floor() as usize;
             let mut entry = self.population.get(idx).unwrap().clone();
 
             mutate(&mut entry);
-
             new_population.push(entry);
         }
-
-
         self.population = new_population;
     }
 

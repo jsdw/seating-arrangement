@@ -11,6 +11,8 @@ use errors::Error;
 use scores::Scores;
 use person::{ NameToId, Id };
 use tables::{ TableSpec, Tables };
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
 
 #[derive(StructOpt, Debug)]
 #[structopt(name = "seating")]
@@ -25,14 +27,22 @@ struct Opt {
     /// How many iterations to perform; more iterations leads to better
     /// results, but also takes longer to complete.
     #[structopt(short="i", long="iterations")]
-    iterations: usize
+    iterations: Option<usize>
 }
 
 fn main() -> Result<(),Error> {
+
     let opt = Opt::from_args();
     let score_list = load_scores(&opt.score_list_file)?;
     let tables: Tables = opt.table_specs.into();
-    let iterations = opt.iterations;
+    let iterations = opt.iterations.unwrap_or(std::usize::MAX);
+
+    // Handle CTRL+C:
+    let running = Arc::new(AtomicBool::new(true));
+    let r = running.clone();
+    ctrlc::set_handler(move || {
+        r.store(false, Ordering::SeqCst);
+    }).expect("Error setting Ctrl-C handler");
 
     // build map of name to Id:
     let mut name_to_id = NameToId::new();
@@ -70,22 +80,59 @@ fn main() -> Result<(),Error> {
     };
 
     // Train a GA using the initial seat list, and the cost_fn above.
-    let mut op = optimiser::Optimiser::new(optimiser::Opts{
-        population_size: 10,
-        fitness_function: cost_fn,
-        initial_value: &seats
-    });
+    let mut ops = vec![];
+    let mut rng = rand::thread_rng();
+    use rand::Rng;
+
+    for _ in 0..10 {
+        ops.push(optimiser::Optimiser::new(optimiser::Opts{
+            population_size: 3,
+            fitness_function: cost_fn,
+            initial_value: &seats
+        }))
+    }
     for it in 0..iterations {
-        op.step();
+        for op in &mut ops {
+            op.step();
+        }
         if it % 1000 == 0 {
-            let seats = op.best_entry();
-            let score = cost_fn(&seats);
+
+            if !running.load(Ordering::SeqCst) {
+                break;
+            }
+
+            let (seats, score) = ops.iter().map(|op| {
+                let seats = op.best_entry();
+                let score = cost_fn(&seats);
+                (seats, score)
+            }).min_by_key(|(_,s)| *s).unwrap();
             println!("{}: {}", it, score);
+        }
+        if it % 5000 == 0 {
+
+            ops.sort_by_cached_key(|op| cost_fn(op.best_entry()));
+            let worst_idx = ops.len() - 1 - (rng.gen_range(0.0f64,1.0).powf(1.5) * (ops.len() - 1) as f64).floor() as usize;
+println!("Removing worst at {}", worst_idx);
+            // let (worst_idx, worst_score) = ops.iter().enumerate().map(|(idx,op)| {
+            //     let seats = op.best_entry();
+            //     let score = cost_fn(&seats);
+            //     (idx, score)
+            // }).max_by_key(|(_,s)| *s).unwrap();
+            // println!("Worst score: {} ({})", worst_score, worst_idx);
+
+            ops[worst_idx] = optimiser::Optimiser::new(optimiser::Opts{
+                population_size: 5,
+                fitness_function: cost_fn,
+                initial_value: &seats
+            })
         }
     }
 
-    let seats = op.best_entry();
-    let score = cost_fn(&seats);
+    let (seats, score) = ops.iter().map(|op| {
+        let seats = op.best_entry();
+        let score = cost_fn(&seats);
+        (seats, score)
+    }).min_by_key(|(_,s)| *s).unwrap();
 
     for (table_size, ids) in tables.chunks_of(seats) {
         println!("Table (size {}):", table_size);
