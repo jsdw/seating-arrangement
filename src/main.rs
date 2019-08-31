@@ -1,13 +1,13 @@
 // Error handling:
 #[macro_use] mod errors;
-// Algorithm to find the best layout:
-mod optimiser;
 // Functionality around Ids and scores between pairs of Ids:
 mod ids;
 // Functionality around table and seat arrangements:
 mod tables;
 /// Working out the cost of some seating arrangement:
 mod cost;
+// Algorithm to find the best layout:
+mod search;
 
 use structopt::StructOpt;
 use std::path::{ Path, PathBuf };
