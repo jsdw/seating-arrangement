@@ -103,23 +103,24 @@ impl std::str::FromStr for TableSpec {
 }
 
 /// Seats containing T's on a table (empty seats included)
+#[derive(Debug,Clone)]
 pub struct Seats<'tables, T> {
     tables: &'tables Tables,
     items: Vec<Option<T>>
 }
 
 impl <'tables, T> Seats<'tables, T> {
-    pub fn get_tables(&self) -> &Tables {
-        self.tables
-    }
-    pub fn get_items(&self) -> &[Option<T>] {
+    pub fn items(&self) -> &[Option<T>] {
         &*self
     }
-    pub fn get_items_mut(&mut self) -> &mut [Option<T>] {
+    pub fn items_mut(&mut self) -> &mut [Option<T>] {
         &mut *self
     }
-    pub fn get_items_per_table<'a>(&'a self) -> impl Iterator<Item=&'a [Option<T>]> {
-        self.tables.table_indexes().map(move |r| &self.items[r])
+    pub fn indexes_on_each_table<'a>(&'a self) -> impl Iterator<Item=Range<usize>> + 'a {
+        self.tables.table_indexes()
+    }
+    pub fn indexes_on_table_with_index<'a>(&'a self, idx: usize) -> Range<usize> {
+        self.tables.table_indexes_containing(idx)
     }
 }
 

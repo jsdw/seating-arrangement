@@ -6,12 +6,15 @@ mod optimiser;
 mod ids;
 // Functionality around table and seat arrangements:
 mod tables;
+/// Working out the cost of some seating arrangement:
+mod cost;
 
 use structopt::StructOpt;
 use std::path::{ Path, PathBuf };
 use errors::Error;
 use ids::{ NameToId, Id, Scores };
 use tables::{ TableSpec, Tables };
+use cost::Cost;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
@@ -60,24 +63,17 @@ fn main() -> Result<(),Error> {
         scores.add_score(person1_id, person2_id, score.value);
     }
 
+    // Define the cost in terms of a pair of individuals seated on a table:
+    let cost = Cost::new(|a: &Option<Id>, b: &Option<Id>| {
+        if let (Some(a), Some(b)) = (a,b) {
+            scores.get_score(*a, *b)
+        } else {
+            None
+        }
+    });
+
     // Put the Ids we have onto table seats:
     let seats = tables.create_seats_from(name_to_id.iter_ids())?;
-
-    // Our cost function (lower output is better):
-    let cost_fn = |a: &Option<Id>, b: &Option<Id>| -> isize {
-        if let (Some(a), Some(b)) = (a,b) {
-            scores.get_score(*a, *b).unwrap_or(0)
-        } else {
-            0
-        }
-        // let mut cost = 0;
-        // for (_,ids) in tables.chunks_of(seats) {
-        //     for (a,b) in ids.iter().filter_map(|&id| id).tuple_combinations() {
-        //         cost += scores.get_score(a, b).unwrap_or(0)
-        //     }
-        // }
-        // cost
-    };
 
     // let (seats, score) = ops.iter().map(|op| {
     //     let seats = op.best_entry();
