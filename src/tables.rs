@@ -1,51 +1,72 @@
 use crate::errors::Error;
+use std::ops::Range;
+use std::cmp::Ordering;
 
 /// A set of tables:
 #[derive(Debug,PartialEq,Eq,Clone)]
 pub struct Tables {
-    seats: Vec<usize>
+    seats: Vec<Range<usize>>
 }
 
 impl Tables {
-    pub fn num_seats(&self) -> usize {
-        self.seats.iter().map(|&n| n).sum()
+    /// How many seats are there in total?
+    pub fn seat_count(&self) -> usize {
+        self.seats.last().map(|r| r.end).unwrap_or(0)
     }
-    /// Slice the thing passed in into slices on seat length for each table we know about,
-    /// returning the table size and the slice of items for the table. If there are not enough items,
-    /// the final slice returned will be smaller than the table size.
-    pub fn chunks_of<'t, T>(&'t self, item: &'t [T]) -> impl Iterator<Item=(usize,&'t [T])> + 't {
+    /// Hand back an iterator over the range of indexes on each table.
+    pub fn table_indexes<'a>(&'a self) -> impl Iterator<Item=Range<usize>> + 'a {
+        self.seats.iter().cloned()
+    }
+    /// What's the range of indexes of the table containing the provided index?
+    pub fn table_indexes_containing(&self, index: usize) -> Range<usize> {
+        let idx = self.seats.binary_search_by(|r| {
+            if r.start > index {
+                Ordering::Greater
+            } else if r.end <= index {
+                Ordering::Less
+            } else {
+                Ordering::Equal
+            }
+        }).expect("index out of range");
+        self.seats[idx].clone()
+    }
+    /// Put some items into Seats, complaining if there aren't enough seats to fit them all:
+    pub fn create_seats_from<'a,T>(&'a self, items: impl IntoIterator<Item=T>) -> Result<Seats<'a,T>,Error> {
+        let num_seats = self.seat_count();
+        let mut seated_items: Vec<_> = items.into_iter().map(Option::Some).collect();
 
-        let mut seats_idx = 0;
-        let mut start_idx = 0;
+        if seated_items.len() > num_seats {
+            return Err(err!("Not enough seats on the table; need at least {} but have {}", seated_items.len(), num_seats))
+        }
 
-        std::iter::from_fn(move || {
-            let seat_count = *self.seats.get(seats_idx)?;
+        while seated_items.len() < num_seats {
+            seated_items.push(None);
+        }
 
-            // If not enough people to fill the seats, the end list will be smaller:
-            let mut end_idx = start_idx + seat_count;
-            if end_idx >= item.len() { end_idx = item.len() }
-
-            let slice = item.get(start_idx..end_idx)?;
-            seats_idx += 1;
-            start_idx += seat_count;
-            Some((seat_count, slice))
-        }).fuse()
+        Ok(Seats {
+            tables: self,
+            items: seated_items
+        })
     }
 }
 
+/// Convert a TableSpec into Tables:
 impl std::convert::From<Vec<TableSpec>> for Tables {
     fn from(spec: Vec<TableSpec>) -> Tables {
         let mut seats = Vec::new();
+        let mut last_idx = 0;
         for ts in spec {
             for _ in 0..ts.quantity {
-                seats.push(ts.seats);
+                let new_last_idx = last_idx + ts.seats;
+                seats.push(last_idx .. new_last_idx);
+                last_idx = new_last_idx;
             }
         }
         Tables { seats }
     }
 }
 
-/// A specification of the tables we have, that can be derived from strings:
+/// A specification of the tables we have that can be derived from strings:
 #[derive(Debug,PartialEq,Eq,Clone,Copy)]
 pub struct TableSpec {
     seats: usize,
@@ -78,5 +99,38 @@ impl std::str::FromStr for TableSpec {
             Err(err!("Table quantity needs to be provided as 'A' or 'AxB' where 'A' is the\
             number of seats and 'B' is the number of tables with that number of seats"))
         }
+    }
+}
+
+/// Seats containing T's on a table (empty seats included)
+pub struct Seats<'tables, T> {
+    tables: &'tables Tables,
+    items: Vec<Option<T>>
+}
+
+impl <'tables, T> Seats<'tables, T> {
+    pub fn get_tables(&self) -> &Tables {
+        self.tables
+    }
+    pub fn get_items(&self) -> &[Option<T>] {
+        &*self
+    }
+    pub fn get_items_mut(&mut self) -> &mut [Option<T>] {
+        &mut *self
+    }
+    pub fn get_items_per_table<'a>(&'a self) -> impl Iterator<Item=&'a [Option<T>]> {
+        self.tables.table_indexes().map(move |r| &self.items[r])
+    }
+}
+
+impl <T> std::ops::Deref for Seats<'_,T> {
+    type Target = [Option<T>];
+    fn deref(&self) -> &Self::Target {
+        &self.items
+    }
+}
+impl <T> std::ops::DerefMut for Seats<'_,T> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.items
     }
 }

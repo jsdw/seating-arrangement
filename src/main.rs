@@ -1,15 +1,16 @@
+// Error handling:
 #[macro_use] mod errors;
+// Algorithm to find the best layout:
 mod optimiser;
-mod scores;
-mod person;
+// Functionality around Ids and scores between pairs of Ids:
+mod ids;
+// Functionality around table and seat arrangements:
 mod tables;
 
-use itertools::Itertools;
 use structopt::StructOpt;
 use std::path::{ Path, PathBuf };
 use errors::Error;
-use scores::Scores;
-use person::{ NameToId, Id };
+use ids::{ NameToId, Id, Scores };
 use tables::{ TableSpec, Tables };
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
@@ -59,92 +60,42 @@ fn main() -> Result<(),Error> {
         scores.add_score(person1_id, person2_id, score.value);
     }
 
-    // Get number of total seats:
-    let number_of_seats = tables.num_seats();
-
-    // Build starting seat arrangement:
-    let mut seats: Vec<Option<Id>> = name_to_id.iter_ids().map(|id| Some(id)).collect();
-    for _ in seats.len()..number_of_seats {
-        seats.push(None)
-    }
+    // Put the Ids we have onto table seats:
+    let seats = tables.create_seats_from(name_to_id.iter_ids())?;
 
     // Our cost function (lower output is better):
-    let cost_fn = |seats: &[Option<Id>]| -> isize {
-        let mut cost = 0;
-        for (_,ids) in tables.chunks_of(seats) {
-            for (a,b) in ids.iter().filter_map(|&id| id).tuple_combinations() {
-                cost += scores.get_score(a, b).unwrap_or(0)
-            }
+    let cost_fn = |a: &Option<Id>, b: &Option<Id>| -> isize {
+        if let (Some(a), Some(b)) = (a,b) {
+            scores.get_score(*a, *b).unwrap_or(0)
+        } else {
+            0
         }
-        cost
+        // let mut cost = 0;
+        // for (_,ids) in tables.chunks_of(seats) {
+        //     for (a,b) in ids.iter().filter_map(|&id| id).tuple_combinations() {
+        //         cost += scores.get_score(a, b).unwrap_or(0)
+        //     }
+        // }
+        // cost
     };
 
-    // Train a GA using the initial seat list, and the cost_fn above.
-    let mut ops = vec![];
-    let mut rng = rand::thread_rng();
-    use rand::Rng;
+    // let (seats, score) = ops.iter().map(|op| {
+    //     let seats = op.best_entry();
+    //     let score = cost_fn(&seats);
+    //     (seats, score)
+    // }).min_by_key(|(_,s)| *s).unwrap();
 
-    for _ in 0..10 {
-        ops.push(optimiser::Optimiser::new(optimiser::Opts{
-            population_size: 3,
-            fitness_function: cost_fn,
-            initial_value: &seats
-        }))
-    }
-    for it in 0..iterations {
-        for op in &mut ops {
-            op.step();
-        }
-        if it % 1000 == 0 {
-
-            if !running.load(Ordering::SeqCst) {
-                break;
-            }
-
-            let (seats, score) = ops.iter().map(|op| {
-                let seats = op.best_entry();
-                let score = cost_fn(&seats);
-                (seats, score)
-            }).min_by_key(|(_,s)| *s).unwrap();
-            println!("{}: {}", it, score);
-        }
-        if it % 5000 == 0 {
-
-            ops.sort_by_cached_key(|op| cost_fn(op.best_entry()));
-            let worst_idx = ops.len() - 1 - (rng.gen_range(0.0f64,1.0).powf(1.5) * (ops.len() - 1) as f64).floor() as usize;
-println!("Removing worst at {}", worst_idx);
-            // let (worst_idx, worst_score) = ops.iter().enumerate().map(|(idx,op)| {
-            //     let seats = op.best_entry();
-            //     let score = cost_fn(&seats);
-            //     (idx, score)
-            // }).max_by_key(|(_,s)| *s).unwrap();
-            // println!("Worst score: {} ({})", worst_score, worst_idx);
-
-            ops[worst_idx] = optimiser::Optimiser::new(optimiser::Opts{
-                population_size: 5,
-                fitness_function: cost_fn,
-                initial_value: &seats
-            })
-        }
-    }
-
-    let (seats, score) = ops.iter().map(|op| {
-        let seats = op.best_entry();
-        let score = cost_fn(&seats);
-        (seats, score)
-    }).min_by_key(|(_,s)| *s).unwrap();
-
-    for (table_size, ids) in tables.chunks_of(seats) {
-        println!("Table (size {}):", table_size);
-        for id in ids {
-            if let Some(id) = id {
-                let name = name_to_id.get_name(*id).expect("Id should have a corresponding name");
-                println!("- {}", name);
-            }
-        }
-        println!();
-    }
-    println!("Final score: {}", score);
+    // for (table_size, ids) in tables.chunks_of(seats) {
+    //     println!("Table (size {}):", table_size);
+    //     for id in ids {
+    //         if let Some(id) = id {
+    //             let name = name_to_id.get_name(*id).expect("Id should have a corresponding name");
+    //             println!("- {}", name);
+    //         }
+    //     }
+    //     println!();
+    // }
+    // println!("Final score: {}", score);
 
     Ok(())
 }
