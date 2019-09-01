@@ -12,9 +12,9 @@ mod search;
 use structopt::StructOpt;
 use std::path::{ Path, PathBuf };
 use errors::Error;
-use ids::{ NameToId, Id, Scores };
+use ids::{ NameToId, Scores };
 use tables::{ TableSpec, Tables };
-use cost::Cost;
+use search::Search;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
@@ -63,35 +63,36 @@ fn main() -> Result<(),Error> {
         scores.add_score(person1_id, person2_id, score.value);
     }
 
-    // Define the cost in terms of a pair of individuals seated on a table:
-    let cost = Cost::new(|a: &Option<Id>, b: &Option<Id>| {
-        if let (Some(a), Some(b)) = (a,b) {
-            scores.get_score(*a, *b)
-        } else {
-            None
-        }
-    });
-
     // Put the Ids we have onto table seats:
     let seats = tables.create_seats_from(name_to_id.iter_ids())?;
 
-    // let (seats, score) = ops.iter().map(|op| {
-    //     let seats = op.best_entry();
-    //     let score = cost_fn(&seats);
-    //     (seats, score)
-    // }).min_by_key(|(_,s)| *s).unwrap();
+    // Prepare to search the seating arrangement:
+    let mut search = Search::new(seats, |a, b| scores.get_score(*a, *b));
 
-    // for (table_size, ids) in tables.chunks_of(seats) {
-    //     println!("Table (size {}):", table_size);
-    //     for id in ids {
-    //         if let Some(id) = id {
-    //             let name = name_to_id.get_name(*id).expect("Id should have a corresponding name");
-    //             println!("- {}", name);
-    //         }
-    //     }
-    //     println!();
-    // }
-    // println!("Final score: {}", score);
+    for i in 0..iterations {
+        search.step();
+        if i % 1000 == 0 {
+            println!("{i}: {c}", i=i, c=search.cost());
+            if !running.load(Ordering::Relaxed) {
+                break
+            }
+        }
+    }
+
+    let final_cost = search.cost();
+    let final_seats = search.best();
+
+    for idxs in final_seats.indexes_on_each_table() {
+        println!("Table (size {}):", idxs.end - idxs.start);
+        for idx in idxs {
+            if let Some(id) = final_seats[idx] {
+                let name = name_to_id.get_name(id).expect("Id should have a corresponding name");
+                println!("- {}", name);
+            }
+        }
+        println!();
+    }
+    println!("Final score: {}", final_cost);
 
     Ok(())
 }

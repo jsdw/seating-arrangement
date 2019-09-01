@@ -110,12 +110,6 @@ pub struct Seats<'tables, T> {
 }
 
 impl <'tables, T> Seats<'tables, T> {
-    pub fn items(&self) -> &[Option<T>] {
-        &*self
-    }
-    pub fn items_mut(&mut self) -> &mut [Option<T>] {
-        &mut *self
-    }
     pub fn indexes_on_each_table<'a>(&'a self) -> impl Iterator<Item=Range<usize>> + 'a {
         self.tables.table_indexes()
     }
