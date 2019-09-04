@@ -23,8 +23,9 @@ impl <'t,F> Search<'t,F> where F: Fn(&Id,&Id) -> Option<isize> {
 
         // Pick some random moves with costs:
         let mut moves: Vec<_> = (0..10).map(|_| {
-            let m = Move::random(&self.current);
-            let c = m.cost_of_move(&mut self.current, &self.cost);
+            let n = rng.gen_range(0,5);
+            let m = Moves::random(&self.current, n);
+            let c = m.cost_of_moves(&mut self.current, &self.cost);
             (m,c)
         }).collect();
 
@@ -33,8 +34,9 @@ impl <'t,F> Search<'t,F> where F: Fn(&Id,&Id) -> Option<isize> {
 
         // Bias selection to best move:
         // let idx = (rng.gen_range(0.0f64,1.0).powf(2.0) * moves.len() as f64).floor() as usize;
-        moves[0].0.apply(&mut self.current);
-
+        if moves[0].1 < self.cost() {
+            moves[0].0.apply(&mut self.current);
+        }
     }
 
     pub fn best(&self) -> &Seats<'t,Id> {
@@ -45,6 +47,37 @@ impl <'t,F> Search<'t,F> where F: Fn(&Id,&Id) -> Option<isize> {
         self.cost.total_cost(&self.current)
     }
 
+}
+
+struct Moves {
+    moves: Vec<Move>
+}
+
+impl Moves {
+    /// Create a sequence of random moves
+    pub fn random<'t>(seats: &Seats<'t,Id>, count: usize) -> Moves {
+        let moves = (0..count).map(|_| Move::random(seats)).collect();
+        Moves { moves }
+    }
+    /// Simulate the move and work out the net cost change of doing so
+    pub fn cost_of_moves<'t,F>(&self, seats: &mut Seats<'t,Id>, cost: &Cost<Id,F>) -> isize where F: Fn(&Id,&Id) -> Option<isize> {
+        self.apply(seats);
+        let after = cost.total_cost(seats);
+        self.unapply(seats);
+        after
+    }
+    /// Apply the move
+    pub fn apply<'t>(&self, seats: &mut Seats<'t,Id>) {
+        for m in &self.moves {
+            m.apply(seats);
+        }
+    }
+    /// Unapply some applied moves
+    pub fn unapply<'t>(&self, seats: &mut Seats<'t,Id>) {
+        for m in self.moves.iter().rev() {
+            m.apply(seats);
+        }
+    }
 }
 
 struct Move {
@@ -70,11 +103,10 @@ impl Move {
     }
     /// Simulate the move and work out the net cost change of doing so
     pub fn cost_of_move<'t,F>(&self, seats: &mut Seats<'t,Id>, cost: &Cost<Id,F>) -> isize where F: Fn(&Id,&Id) -> Option<isize> {
-        let before = cost.individual_cost(seats, self.a) + cost.individual_cost(seats, self.b);
         self.apply(seats);
         let after = cost.individual_cost(seats, self.a) + cost.individual_cost(seats, self.b);
         self.apply(seats);
-        after - before
+        after
     }
     /// Apply the move
     pub fn apply<'t>(&self, seats: &mut Seats<'t,Id>) {
