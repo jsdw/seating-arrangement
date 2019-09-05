@@ -21,21 +21,13 @@ impl <'t,F> Search<'t,F> where F: Fn(&Id,&Id) -> Option<isize> {
     pub fn step(&mut self) {
         let mut rng = rand::thread_rng();
 
-        // Pick some random moves with costs:
-        let mut moves: Vec<_> = (0..10).map(|_| {
-            let n = rng.gen_range(0,5);
-            let m = Moves::random(&self.current, n);
-            let c = m.cost_of_moves(&mut self.current, &self.cost);
-            (m,c)
-        }).collect();
+        let n = (rng.gen_range(0.0f64,1.0).powf(2.0) * 20 as f64).floor() as usize;
+        let m = Moves::random(&self.current, n);
+        let c = m.cost_of_moves(&mut self.current, &self.cost);
 
-        // Sort the moves, lowest cost first:
-        moves.sort_by_key(|(_,c)| *c);
-
-        // Bias selection to best move:
-        // let idx = (rng.gen_range(0.0f64,1.0).powf(2.0) * moves.len() as f64).floor() as usize;
-        if moves[0].1 < self.cost() {
-            moves[0].0.apply(&mut self.current);
+        // Apply move if it's an improvement:
+        if c < self.cost() {
+            m.apply(&mut self.current);
         }
     }
 
