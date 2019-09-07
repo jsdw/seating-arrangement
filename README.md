@@ -1,6 +1,6 @@
 # seating-arrangement
 
-A small binary for discovering "good" seating arrangements across a set of tables.
+A small binary for discovering "good" seating arrangements across a set of tables. You might use this at a wedding for instance, if you have a large group of people you need to seat and you're not sure where to start!
 
 # Usage
 
