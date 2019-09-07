@@ -82,8 +82,8 @@ impl std::str::FromStr for TableSpec {
         }
         // 'AxB' is the number of seats * the number of tables with that many seats:
         else if let Some(idx) = s.find(|c| c == 'x' || c == 'X') {
-            let seats_str = &s[0..idx];
-            let quantity_str = &s[idx+1..];
+            let quantity_str = &s[0..idx];
+            let seats_str = &s[idx+1..];
 
             let seats = seats_str.parse().map_err(|_| {
                 err!("'{}' is not a valid number of seats", seats_str)
