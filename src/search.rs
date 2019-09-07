@@ -6,29 +6,45 @@ use crate::cost::Cost;
 
 pub struct Search<'t,F> {
     cost: Cost<Id,F>,
-    current: Seats<'t, Id>
+    current: Seats<'t, Id>,
+    current_cost: isize,
+    temperature: f64
 }
 
 impl <'t,F> Search<'t,F> where F: Fn(&Id,&Id) -> Option<isize> {
 
     pub fn new(seats: Seats<'t, Id>, cost_fn: F) -> Search<'t,F> {
+        let cost = Cost::new(cost_fn);
+        let current_cost = cost.total_cost(&seats);
         Search {
-            cost: Cost::new(cost_fn),
-            current: seats
+            cost,
+            current: seats,
+            current_cost,
+            temperature: 0.0
         }
     }
 
     pub fn step(&mut self) {
         let mut rng = rand::thread_rng();
 
-        let n = (rng.gen_range(0.0f64,1.0).powf(2.0) * 20 as f64).floor() as usize;
+        let n = rng.gen_range(1, 5);
         let m = Moves::random(&self.current, n);
         let c = m.cost_of_moves(&mut self.current, &self.cost);
 
-        // Apply move if it's an improvement:
-        if c < self.cost() {
+        // Apply move if it's an improvement, or if the temperature
+        // is warm enough that it's randomly allowed:
+        if c < self.cost() || rng.gen_range(0.0,1.0) < self.temperature {
             m.apply(&mut self.current);
+            self.current_cost = c;
+            // Each time we apply a move, knock the temperature right down:
+            self.temperature -= 0.2;
+        } else {
+            // Each time we can't apply the move, increase chance that we
+            // apply a bad move a little:
+            self.temperature += 0.0000000001;
         }
+        // Temperature can't get below 0:
+        self.temperature = self.temperature.max(0.0);
     }
 
     pub fn best(&self) -> &Seats<'t,Id> {
@@ -36,7 +52,7 @@ impl <'t,F> Search<'t,F> where F: Fn(&Id,&Id) -> Option<isize> {
     }
 
     pub fn cost(&self) -> isize {
-        self.cost.total_cost(&self.current)
+        self.current_cost
     }
 
 }

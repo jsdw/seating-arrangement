@@ -66,33 +66,44 @@ fn main() -> Result<(),Error> {
     // Put the Ids we have onto table seats:
     let seats = tables.create_seats_from(name_to_id.iter_ids())?;
 
-    // Prepare to search the seating arrangement:
+    // Search the seating arrangement:
+    println!("Starting search (lower score is better). Hit CTRL+C at any time to return the current best result.");
     let mut search = Search::new(seats, |a, b| scores.get_score(*a, *b));
-
+    let mut best_seats = search.best().clone();
+    let mut best_cost = search.cost();
     for i in 0..iterations {
         search.step();
-        if i % 1000 == 0 {
-            println!("{i}: {c}", i=i, c=search.cost());
-            if !running.load(Ordering::Relaxed) {
-                break
-            }
+
+        if search.cost() < best_cost {
+            best_cost = search.cost();
+            best_seats = search.best().clone();
+        }
+
+        if i % 10000 == 0 {
+            println!("{i}: current {c} (best {best})", i=i, c=search.cost(), best=best_cost);
+        }
+
+        if i % 1000 == 0 && !running.load(Ordering::Relaxed) {
+            break
         }
     }
 
-    let final_cost = search.cost();
-    let final_seats = search.best();
-
-    for idxs in final_seats.indexes_on_each_table() {
-        println!("Table (size {}):", idxs.end - idxs.start);
-        for idx in idxs {
-            if let Some(id) = final_seats[idx] {
-                let name = name_to_id.get_name(id).expect("Id should have a corresponding name");
-                println!("- {}", name);
-            }
+    // Print results (after either iters are hit or we CTRL+C):
+    for idxs in best_seats.indexes_on_each_table() {
+        let mut names: Vec<_> = idxs
+            .clone()
+            .filter_map(|idx| best_seats[idx])
+            .map(|id| name_to_id.get_name(id).unwrap())
+            .collect();
+        names.sort();
+        let table_size = idxs.end - idxs.start;
+        println!("Table (size: {}, empty: {}):", table_size, table_size - names.len());
+        for name in names {
+            println!("- {}", name);
         }
         println!();
     }
-    println!("Final score: {}", final_cost);
+    println!("Final score: {}", best_cost);
 
     Ok(())
 }
